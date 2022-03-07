@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import firebase from 'firebase/app';
-import { firebaseApp } from '../base';
+import base, { firebaseApp } from '../base';
 import AddFishForm from './addFishForm';
 import EditFishForm from './editFishForm';
 import Login from './Login';
@@ -15,9 +15,35 @@ class Inventory extends React.Component {
     loadSampleFishes: PropTypes.func,
   }
 
+  state = {
+    uid: null,
+    owner: null
+  }
+
+  componentDidMount(){
+    firebase.auth().onAuthStateChanged(user => {
+      if(user){
+        this.authHandler({ user })
+      }
+    })
+  }
 
   authHandler = async authData => {
-    console.log(authData);
+    // 1. look up the current store in the firebase database
+    const store = await base.fetch(this.props.storeId, { context: this});
+    // 2. claim if there's no owner
+    if(!store.owner){
+      // save it as our own
+      await base.post(`${this.props.storeId}/owner`, {
+        data: authData.user.uid
+      })
+    }
+    // 3. set the state of the inventory component to reflect the current user
+    this.setState({
+      uid: authData.user.uid,
+      owner: store.owner || authData.user.uid
+    })
+    
   }
 
   authenticate = provider => {
@@ -29,28 +55,47 @@ class Inventory extends React.Component {
       .then(this.authHandler);
   }
 
-  render(){
-    return <Login authenticate={this.authenticate}/>;
+  logout = async () => {
+    console.log('logging out!');
+    await firebase.auth().signOut();
+    this.setState({ uid: null });
+  }
 
-  //   return(
-  //     <div className="inventory">
-  //       <h2>Inventory</h2>
-  //       {Object.keys(this.props.fishes).map(key=> (
-  //         <EditFishForm 
-  //           key={key} 
-  //           index={key} 
-  //           fish={this.props.fishes[key]} 
-  //           updateFish={this.props.updateFish}
-  //           deleteFish={this.props.deleteFish}
-  //         />
-  //       ))}
-  //       <AddFishForm addFish={this.props.addFish} />
-  //       <button onClick={this.props.loadSampleFishes}>
-  //         Load sample fishes
-  //       </button>
+  render(){
+    const logout =  <button onClick={this.logout}>Logout</button>
+    // 1. check if they are logged in
+    if(!this.state.uid){
+      return <Login authenticate={this.authenticate}/>;
+    }
+    // 2. check if they are not the owner of the store
+    if(this.state.uid !== this.state.owner){
+      return <div>
+        <p>Sorry! you are not the owner =[!</p>
+        {logout}
+      </div>
+    }
+
+    // 3. they must be the owner, render the inventory
+    return(
+      <div className="inventory">
+        <h2>Inventory</h2>
+        {logout}
+        {Object.keys(this.props.fishes).map(key=> (
+          <EditFishForm 
+            key={key} 
+            index={key} 
+            fish={this.props.fishes[key]} 
+            updateFish={this.props.updateFish}
+            deleteFish={this.props.deleteFish}
+          />
+        ))}
+        <AddFishForm addFish={this.props.addFish} />
+        <button onClick={this.props.loadSampleFishes}>
+          Load sample fishes
+        </button>
         
-  //     </div>
-  //   )
+      </div>
+    )
   }
 }
 
